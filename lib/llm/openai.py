@@ -10,13 +10,15 @@ class OpenAiApi(BaseApiLLM):
         self.client = OpenAI(base_url=f"{self.base_url}/engines/v1", api_key="docker")
         print("OpenAI API -> ",self.base_url)
 
+
+
     def generate_text(self, prompt: str, stream: bool = True,  max_tokens: int = 50) -> str:
 
         if stream:
             completion = self.client.chat.completions.create(
                 model = f"{self.model_name}",
                 messages = [
-                    { "role": "system", "content": "respond to the question"},
+                    { "role": "system", "content": self.params["system_prompt"]},
                     { "role": "user", "content": prompt},
                 ],
                 stream = True
@@ -32,7 +34,7 @@ class OpenAiApi(BaseApiLLM):
             completion = self.client.chat.completions.create(
                 model = f"{self.model_name}",
                 messages = [
-                    { "role": "system", "content": "respond to the question"},
+                    { "role": "system", "content": self.params["system_prompt"]},
                     { "role": "user", "content": prompt},
                 ]
             )
@@ -41,7 +43,17 @@ class OpenAiApi(BaseApiLLM):
 
 
     def set_params(self, new_params: dict) -> None:
-        print(f"Parameters updated: {new_params}")
+
+        # key_to_check = 'system_prompt'
+        # if key_to_check in new_params:
+        #     print(f"Updating the key '{key_to_check}' in params.")
+
+        # for k, v in new_params.items():
+        #     if k in self.params:
+        #         self.params[k] = v
+        #         print(f"[OpenAiApi] Updating the key '{k}' to '{v}' in params.")
+        super().set_params(new_params)
+
 
     def list_models(self):
         # Getting models from OpenAI API

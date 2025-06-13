@@ -5,7 +5,11 @@ class BaseApiLLM(ABC):
     def __init__(self, base_url : str, model_name: str):
         self.model_name = model_name
         self.base_url = base_url
-        print(f"Initializing API LLM: {self.model_name} to  {self.base_url}")
+        # params dictionary
+        self.params = {
+            "system_prompt": "respond to the question the best you can"
+        }
+        print(f"Initializing API LLM: {self.model_name} to {self.base_url}")
 
     # @abstractmethod
     def set_model(self, model_path: str) -> None:
@@ -21,7 +25,12 @@ class BaseApiLLM(ABC):
         """Generates text based on the provided prompt."""
         pass
 
-    @abstractmethod
+    # @abstractmethod
     def set_params(self, new_params: dict) -> None:
         """Sets parameters for the LLM like top_p probability and temperature."""
-        pass
+        
+        # only set parameters if the key already exist
+        for k, v in new_params.items():
+            if k in self.params:
+                self.params[k] = v
+                # print(f"[BaseApiLLM] Updating the key '{k}' to '{v}' in params.")
