@@ -33,53 +33,94 @@ def test_interactive_mode_input_handling_and_response_display(mock_console, mock
     mock_session_instance.prompt.side_effect = ["hello llm", "exit"]
 
     mock_llm_instance = mock_openai_api.return_value
-    mock_llm_instance.generate_text.return_value = "LLM response to hello"
+
+    # Simulate streaming response
+    def mock_streaming_generate_text(prompt, stream=True):
+        if stream:
+            yield "LLM "
+            yield "response "
+            yield "to "
+            yield "hello"
+        else: # Fallback for non-streaming calls if any (though current code uses stream=True)
+            return "LLM response to hello (non-streamed)"
+
+    mock_llm_instance.generate_text.side_effect = mock_streaming_generate_text
 
     mock_screen_instance = MagicMock()
     mock_console_instance = mock_console.return_value
     mock_console_instance.screen.return_value.__enter__.return_value = mock_screen_instance
 
+    # Check that Rich Panel was called with the expected content, including progressive updates
+    # panel_call_args_list = mock_lib_ai_panel.call_args_list # Original approach
+
+    captured_panel_plain_texts_at_call_time = []
+    def capture_panel_text_on_call(*args, **kwargs):
+        # This function will be the side_effect for mock_lib_ai_panel constructor
+        # It captures the 'plain' text of the first argument if it's a Text object.
+        if args and len(args) > 0:
+            renderable = args[0]
+            title = kwargs.get('title', '') # Capture title to differentiate panels if needed
+
+            # We are interested in the main "LLM Response" panel's content progression
+            # and also status panels.
+            if title == "LLM Response":
+                if hasattr(renderable, 'plain'):
+                    captured_panel_plain_texts_at_call_time.append(renderable.plain)
+                elif isinstance(renderable, str): # e.g. Panel("", title="LLM Response")
+                    captured_panel_plain_texts_at_call_time.append(renderable)
+            elif title == "Status": # Capture status texts as well
+                 if hasattr(renderable, 'plain'):
+                    captured_panel_plain_texts_at_call_time.append(renderable.plain)
+        return MagicMock() # Each call to Panel() should return a new mock instance
+
+    mock_lib_ai_panel.side_effect = capture_panel_text_on_call # **** SET SIDE_EFFECT HERE ****
+
     # Call the function under test
     run_interactive_mode(api_endpoint="dummy_api", model_name="dummy_model")
+
+    actual_panel_renderable_texts = captured_panel_plain_texts_at_call_time
 
     # Assertions
     mock_prompt_session.assert_called_once()
     mock_session_instance.prompt.assert_any_call("> ")
 
     mock_openai_api.assert_called_with("dummy_api", "dummy_model")
-    mock_llm_instance.generate_text.assert_called_once_with("hello llm", stream=False)
+    # Assert that generate_text was called with stream=True
+    mock_llm_instance.generate_text.assert_called_once_with("hello llm", stream=True)
 
-    # Check that Rich Panel was called with the expected content
-    panel_call_args_list = mock_lib_ai_panel.call_args_list # Use the renamed mock
+    # The side_effect defined above will populate captured_panel_plain_texts_at_call_time
 
-    # Expected texts within Panel calls
-    expected_texts_in_panels = [
-        "Status: Idle | LLM API: dummy_api | Model: dummy_model", # Initial status
-        "Status: Processing... | LLM API: dummy_api | Model: dummy_model", # Processing status
-        "LLM response to hello", # LLM Response
-        "Status: Idle | LLM API: dummy_api | Model: dummy_model"  # Final status
-    ]
+    # Expected texts within Panel calls, including intermediate streamed content
+    # These are now checked directly against actual_panel_renderable_texts
+    # ... (expected_panel_contents list can be removed or used for reference) ...
 
-    # Extract text from Text objects passed to Panel
-    found_texts_in_panels = []
-    for call_args in panel_call_args_list:
-        args, kwargs = call_args
-        if args and hasattr(args[0], 'plain'): # Check if the first arg is a Rich Text object
-            found_texts_in_panels.append(args[0].plain)
-        elif kwargs and 'renderable' in kwargs and hasattr(kwargs['renderable'], 'plain'):
-             found_texts_in_panels.append(kwargs['renderable'].plain)
-        elif args and isinstance(args[0], str): # For simple string cases like Panel("", title="LLM Response")
-            found_texts_in_panels.append(args[0])
+    # print(f"DEBUG: Actual panel renderable texts from side_effect: {actual_panel_renderable_texts}")
 
+    # Check for status updates and progressive response text
+    # Note: The order of panel creation for status vs response might vary slightly depending on
+    # how run_interactive_mode is structured. The key is that these texts appear.
 
-    # print(f"DEBUG: Found texts in Panel calls: {found_texts_in_panels}") # For debugging
+    # Status panel texts that should appear
+    assert "Status: Idle | LLM API: dummy_api | Model: dummy_model" in actual_panel_renderable_texts
+    assert "Status: Processing... | LLM API: dummy_api | Model: dummy_model" in actual_panel_renderable_texts
 
-    for expected_text in expected_texts_in_panels:
-        assert any(expected_text in found_text for found_text in found_texts_in_panels), \
-            f"Expected text '{expected_text}' not found in any Panel."
+    # Response panel texts, showing progression
+    assert "" in actual_panel_renderable_texts # Initial empty response panel
+    assert "LLM " in actual_panel_renderable_texts
+    assert "LLM response " in actual_panel_renderable_texts
+    assert "LLM response to " in actual_panel_renderable_texts
+    assert "LLM response to hello" in actual_panel_renderable_texts
 
-    # Verify screen was updated multiple times (initial, processing, after response)
-    assert mock_screen_instance.update.call_count >= 3
+    # Verify screen was updated multiple times.
+    # screen.update is called:
+    #  1. Initial layout
+    #  2. Status processing
+    #  3. Initial empty response panel (after clearing, before streaming)
+    #  4. For each chunk (4 chunks)
+    #  5. Final status idle
+    # Total expected: 1 + 1 + 1 + 4 + 1 = 8 updates.
+    # Let's stick to a general check of >= 7 as before, as exact counts can be fragile.
+    assert mock_screen_instance.update.call_count >= 7
 
 
 @patch('lib.ai.test_openai')
