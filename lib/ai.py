@@ -75,7 +75,7 @@ def run_interactive_mode(api_endpoint, model_name):
     rich_layout.split_column(
         RichLayout(name="header", size=3),
         RichLayout(name="main", ratio=1), # Main content area, takes most space
-        RichLayout(name="prompt_reserve", size=1) # Reserved space for prompt_toolkit input line
+        RichLayout(name="prompt_reserve", size=3) # Reserved space for prompt_toolkit input line
     )
     rich_layout["header"].update(status_panel)
     rich_layout["main"].update(response_area)
@@ -100,7 +100,7 @@ def run_interactive_mode(api_endpoint, model_name):
                 # In a real scenario, you would call your LLM API here
                 # For now, just echoing the input
                 openai_api = OpenAiApi(api_endpoint, model_name)
-                response_text = openai_api.generate_text(prompt_text, stream=False)
+                response_text = openai_api.generate_text(prompt_text, stream=True)
 
 
                 response_area = Panel(Text(response_text if response_text else ""), title="LLM Response")
