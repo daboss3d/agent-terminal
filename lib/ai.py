@@ -74,12 +74,14 @@ def run_interactive_mode(api_endpoint, model_name):
     rich_layout = RichLayout(name="root")
     rich_layout.split_column(
         RichLayout(name="header", size=3),
-        RichLayout(name="main"),
-        RichLayout(name="footer", size=3),
+        RichLayout(name="main", ratio=1), # Main content area, takes most space
+        RichLayout(name="prompt_reserve", size=1) # Reserved space for prompt_toolkit input line
     )
     rich_layout["header"].update(status_panel)
     rich_layout["main"].update(response_area)
-    # rich_layout["footer"].update(input_line) # Placeholder for prompt_toolkit input
+    # The "prompt_reserve" area is intentionally left blank or can have minimal content.
+    # prompt_toolkit will draw over this line.
+    rich_layout["prompt_reserve"].update("") # Explicitly make it blank
 
     with console.screen() as screen:
         while True:
