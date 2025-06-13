@@ -3,7 +3,7 @@ import json
 import requests
 
 from lib.llm.basellm import BaseApiLLM
-from lib.utils.text import hello_text , clear_markdown_to_color
+# from lib.utils.text import clear_markdown_to_color # Removed as it's no longer in utils and functionality is not immediately required
 from lib.llm.prompts import explain_terminal
 
 config = {
@@ -130,58 +130,86 @@ def query_stream(model_name: str, base_url : str, prompt):
 
 # Final methods ######################################################################################
 
-def generate_text(base_url : str, payload:dict, stream: bool = True ):
+def generate_text(base_url : str, payload:dict, stream: bool = True ) -> dict:
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
 
     if stream:
-        with requests.post(base_url, json=payload, stream=True) as response:
-
-            response.raise_for_status()
-
-            # Variable to hold concatenated response strings if no callback is provided
-            full_response = ""
-
-            # Iterating over the response line by line and displaying the details
-            for line in response.iter_lines():
-                if line:
-                    # Parsing each line (JSON chunk) and extracting the details
-                    chunk = json.loads(line)
-
-                    # If this is not the last chunk, add the "response" field value to full_response and print it
-                    if not chunk.get("done"):
-                        response_piece = chunk.get("response", "")
-                        full_response += response_piece
-                        print(response_piece, end="", flush=True)
-
-            if response == "":
-                print("Error parsing response")
-                exit(-1)
-    else :
-        response_text = ""
-
+        full_response = ""
+        final_chunk_data = {}
         try:
-            with requests.post(base_url, json=payload, stream=False) as response:
+            with requests.post(base_url, json=payload, stream=True) as response:
                 response.raise_for_status()
-    
+                print() # Start stream on new line
                 for line in response.iter_lines():
                     if line:
                         chunk = json.loads(line)
-                        # Check if the chunk has a done flag
                         if not chunk.get("done"):
                             response_piece = chunk.get("response", "")
-                            response_text += response_piece
-                            # print(response_piece, end="", flush=True)
+                            full_response += response_piece
+                            print(response_piece, end="", flush=True)
+                        else:
+                            # This is the final chunk with metadata
+                            final_chunk_data = chunk
+                            print() # Newline after stream completion
 
-                print()  # To ensure new line after printing the command
+                if final_chunk_data:
+                    prompt_tokens = final_chunk_data.get("prompt_eval_count", 0)
+                    completion_tokens = final_chunk_data.get("eval_count", 0)
+                    total_tokens = prompt_tokens + completion_tokens
 
         except requests.RequestException as e:
-            print(f"Error fetching data from Ollama: {str(e)}")
-        finally:
-            if response_text.strip() == "":
-                return "No response received."
+            print(f"Error fetching data from Ollama (stream): {str(e)}")
+            # Return empty/error structure or raise? For now, return what we have.
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from Ollama (stream): {str(e)}")
 
-            # spinner.stop()
-        return clear_markdown_to_color(response_text)   
+        return {
+            "text": full_response, # Raw text for stream
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
+    else: # Non-streaming
+        response_text = ""
+        final_chunk_data = {}
+        try:
+            # For non-streaming, Ollama typically sends a single JSON object response
+            # if stream=False is respected by the server.
+            # However, the previous code iterated lines, suggesting it might still be chunked
+            # or that stream=False in payload might not prevent line-by-line response.
+            # Assuming the server might still send line-by-line JSON objects ending with a "done" one.
+            with requests.post(base_url, json=payload, stream=True) as response: # Keep stream=True for iter_lines
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line:
+                        chunk = json.loads(line)
+                        if not chunk.get("done"):
+                            response_text += chunk.get("response", "")
+                        else:
+                            final_chunk_data = chunk # This is the final summary chunk
 
+                if final_chunk_data:
+                    prompt_tokens = final_chunk_data.get("prompt_eval_count", 0)
+                    completion_tokens = final_chunk_data.get("eval_count", 0)
+                    total_tokens = prompt_tokens + completion_tokens
+                else: # Fallback if 'done' message wasn't received or parsed
+                    print("Warning: Final 'done' chunk not processed in non-streaming mode for Ollama.")
+
+
+        except requests.RequestException as e:
+            print(f"Error fetching data from Ollama (non-stream): {str(e)}")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from Ollama (non-stream): {str(e)}")
+
+        # Apply color only for non-streamed, fully collected text
+        return {
+            "text": response_text if response_text else "", # Removed clear_markdown_to_color
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
 
 def list_models(base_url):
     """
@@ -207,19 +235,17 @@ def list_models(base_url):
 
 # Example usage (you would need to create a concrete subclass of this)
 class OllamaApi(BaseApiLLM):
-    def generate_text(self, prompt: str, stream: bool = True,  max_tokens: int = 50) -> str:
+    def generate_text(self, prompt: str, stream: bool = False,  max_tokens: int = 50) -> dict: # Ensure stream default matches base
 
         payload = {
             "model": self.model_name,
-            "prompt": f"{prompt}",
+            "prompt": f"{prompt}", # The prompt passed to agent.generate_response already includes file content
             "system": self.params["system_prompt"]
+            # "max_tokens": max_tokens # Ollama generate API might use "options": {"num_predict": max_tokens}
         }
 
-        if stream:
-            #  query_stream(self.model_name, f"{self.base_url}/api/generate", prompt)
-            generate_text(f"{self.base_url}/api/generate", payload, True)
-        else:
-            return generate_text(f"{self.base_url}/api/generate", payload, False)
+        # The helper `generate_text` now returns the dictionary directly.
+        return generate_text(f"{self.base_url}/api/generate", payload, stream)
 
     def set_params(self, new_params: dict) -> None:
         # for k, v in new_params.items():

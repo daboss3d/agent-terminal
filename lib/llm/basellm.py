@@ -21,9 +21,19 @@ class BaseApiLLM(ABC):
         print("Current Model ->",self.model_name)
 
     @abstractmethod
-    def generate_text(self, prompt: str, max_tokens: int = 50) -> str:
-        """Generates text based on the provided prompt."""
-        pass
+    def generate_text(self, prompt: str, stream: bool = False, max_tokens: int = 50) -> dict:
+        """
+        Generates text based on the provided prompt.
+
+        Returns:
+            dict: {
+                "text": str,
+                "prompt_tokens": int,
+                "completion_tokens": int,
+                "total_tokens": int
+            }
+        """
+        raise NotImplementedError
 
     # @abstractmethod
     def set_params(self, new_params: dict) -> None:
