@@ -1,4 +1,5 @@
 import sys
+import argparse
 from enum import Enum
 
  
@@ -59,18 +60,44 @@ def test_ollama(prompt: str, stream: bool = True):
 def main():
     print("AI agent-terminal!")
 
-    args = sys.argv[1:]
-    print("[AI] ------------------ parameters: ", len(sys.argv[1:]))
-    print(args)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('prompt', nargs='?', default='', help='Main text prompt')
+    parser.add_argument('-f', '--file', dest='filename', help='File path')
+    parser.add_argument('--stream', action='store_true', help='Enable streaming')
+
+    parsed_args = parser.parse_args()
+
+    print("[AI] ------------------ parameters: ")
+    print(f"Prompt: {parsed_args.prompt}")
+    print(f"Filename: {parsed_args.filename}")
+    print(f"Stream: {parsed_args.stream}")
     print("[AI]---------------------------------")
 
-    prompt = filter_commands(args)
-    print("promt ->",prompt[0])
+    file_content = ""
+    if parsed_args.filename:
+        try:
+            with open(parsed_args.filename, 'r') as f:
+                file_content = f.read()
+        except FileNotFoundError:
+            print(f"Error: File not found: {parsed_args.filename}")
+        except IOError:
+            print(f"Error: Could not read file: {parsed_args.filename}")
 
-    is_streamming = contains_substring("--stream",args)
+    final_prompt = parsed_args.prompt
+    if file_content:
+        if parsed_args.prompt:
+            final_prompt = f"{file_content}\n\n{parsed_args.prompt}"
+        else:
+            final_prompt = file_content
 
-    test_openai(prompt[0],is_streamming)
-    # test_ollama(prompt,is_streamming)
+    if final_prompt:
+        test_openai(final_prompt, parsed_args.stream)
+    elif parsed_args.filename: # File was specified but couldn't be read, and no prompt was given
+        print(f"Proceeding without content from {parsed_args.filename} due to read error and no other prompt provided.")
+    else: # No prompt and no file specified
+        print("No prompt or file provided. Use -h for help.")
+
+    # test_ollama(final_prompt, parsed_args.stream)
 
 
 
