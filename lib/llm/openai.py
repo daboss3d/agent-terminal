@@ -30,6 +30,11 @@ class OpenAiApi(BaseApiLLM):
             "text": "", "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0
         }
         try:
+
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+
             if stream:
                 completion = self.client.chat.completions.create(
                     model=f"{self.model_name}",
@@ -38,6 +43,7 @@ class OpenAiApi(BaseApiLLM):
                         {"role": "user", "content": prompt},
                     ],
                     stream=True,
+                    stream_options={"include_usage": True} # <--- IMPORTANT: Request usage info
                     # max_tokens=max_tokens
                 )
 
@@ -48,12 +54,22 @@ class OpenAiApi(BaseApiLLM):
                     if data is not None:
                         full_response_text += data
                         print(data, end="", flush=True)
+                
+
+                    elif chunk.usage:
+                        # This is the final chunk containing usage information
+                        usage = chunk.usage
+                        prompt_tokens = usage.prompt_tokens
+                        completion_tokens = usage.completion_tokens
+                        total_tokens = usage.total_tokens
+                     
                 print()
+
                 return {
                     "text": full_response_text,
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
                 }
             else:
                 completion = self.client.chat.completions.create(
@@ -66,9 +82,6 @@ class OpenAiApi(BaseApiLLM):
                 )
 
                 text_response = ""
-                prompt_tokens = 0
-                completion_tokens = 0
-                total_tokens = 0
 
                 if completion.choices and completion.choices[0].message:
                     text_response = completion.choices[0].message.content
@@ -77,6 +90,7 @@ class OpenAiApi(BaseApiLLM):
                     prompt_tokens = completion.usage.prompt_tokens if completion.usage.prompt_tokens is not None else 0
                     completion_tokens = completion.usage.completion_tokens if completion.usage.completion_tokens is not None else 0
                     total_tokens = completion.usage.total_tokens if completion.usage.total_tokens is not None else 0
+                    
 
                 return {
                     "text": text_response,

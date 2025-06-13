@@ -53,6 +53,8 @@ def main():
     if not agent.active_llm_api:
         print(f"Failed to activate API: {parsed_args.api}. Please check configurations.")
         return
+    
+    agent.set_active_api("openai")
 
     file_content = ""
     if parsed_args.filename:

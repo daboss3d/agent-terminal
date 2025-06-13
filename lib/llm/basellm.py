@@ -44,3 +44,5 @@ class BaseApiLLM(ABC):
             if k in self.params:
                 self.params[k] = v
                 # print(f"[BaseApiLLM] Updating the key '{k}' to '{v}' in params.")
+            else :
+                print(f"[BaseApiLLM] ERROR Updating the key '{k}' to '{v}' in params, the key '{k}' not exist")
