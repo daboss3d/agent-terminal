@@ -33,7 +33,7 @@ def test_openai(prompt: str, stream: bool = True):
     openai_api = OpenAiApi("http://127.0.0.1:12434","ai/gemma3:latest")
  
     print("Models ->",openai_api.list_models())
-    openai_api.set_params({"system_prompt":"respond to the question the best you can in Arabic"})    
+    openai_api.set_params({"system_prompt":"respond to the question the best you can"})    
     openai_api.generate_text(prompt,stream=stream)
 
 
