@@ -1,0 +1,11 @@
+openai==1.12.0
+pydantic==2.5.3
+pydantic-core==2.14.6
+pydantic-settings==2.1.0
+requests
+httpx~=0.25.0 # Pinning httpx to a version compatible with openai 1.12.0
+typing_extensions>=4.0.0 # Common requirement
+sniffio>=1.1
+anyio>=3.0.0
+idna>=2.5
+certifi>=2017.4.17

@@ -12,43 +12,117 @@ class OpenAiApi(BaseApiLLM):
 
 
 
-    def generate_text(self, prompt: str, stream: bool = True,  max_tokens: int = 50) -> str:
+from openai import OpenAI, APIConnectionError # Import APIConnectionError
 
-        if stream:
-            completion = self.client.chat.completions.create(
-                model = f"{self.model_name}",
-                messages = [
-                    { "role": "system", "content": self.params["system_prompt"]},
-                    { "role": "user", "content": prompt},
-                ],
-                stream = True
-            )
+from lib.llm.basellm import BaseApiLLM
 
-            response_content = ""
-            for chunk in completion:
-                data = chunk.choices[0].delta.content
-                if data: # Check if data is not None and not empty
-                    response_content += data
-                    yield data # Yield each chunk for streaming
-            # When streaming, we might not need to return the full accumulated content here,
-            # as it's yielded. However, if a return value is expected by some callers
-            # when stream=True, this might need adjustment. For now, focus on yielding.
-            # return response_content
-            return # Ensure a clear return path if needed, or rely on StopIteration
+class OpenAiApi(BaseApiLLM):
 
-        else: # Not streaming
-            completion = self.client.chat.completions.create(
-                model = f"{self.model_name}",
-                messages = [
-                    { "role": "system", "content": self.params["system_prompt"]},
-                    { "role": "user", "content": prompt},
-                ],
-                stream = False # Explicitly False
-            )
-            # Extract the text content from the completion
+    def __init__(self, base_url : str, model_name: str):
+        super().__init__(base_url, model_name)
+        self.client = OpenAI(base_url=f"{self.base_url}/engines/v1", api_key="docker")
+        print("OpenAI API -> ",self.base_url)
+
+
+
+    def generate_text(self, prompt: str, stream: bool = False,  max_tokens: int = 50) -> dict:
+        default_error_response = {
+            "text": "", "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0
+        }
+        try:
+
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+
+            if stream:
+                completion = self.client.chat.completions.create(
+                    model=f"{self.model_name}",
+                    messages=[
+                        {"role": "system", "content": self.params["system_prompt"]},
+                        {"role": "user", "content": prompt},
+                    ],
+                    stream=True,
+                    stream_options={"include_usage": True} # <--- IMPORTANT: Request usage info
+                    # max_tokens=max_tokens
+                )
+
+                full_response_text = ""
+                print()
+                for chunk in completion:
+                    data = chunk.choices[0].delta.content
+                    if data is not None:
+                        full_response_text += data
+                        print(data, end="", flush=True)
+
+
+                    elif chunk.usage:
+                        # This is the final chunk containing usage information
+                        usage = chunk.usage
+                        prompt_tokens = usage.prompt_tokens
+                        completion_tokens = usage.completion_tokens
+                        total_tokens = usage.total_tokens
+
+                print()
+
+                return {
+                    "text": full_response_text,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
+                }
+            else:
+                completion = self.client.chat.completions.create(
+                    model=f"{self.model_name}",
+                    messages=[
+                        {"role": "system", "content": self.params["system_prompt"]},
+                        {"role": "user", "content": prompt},
+                    ],
+                    # max_tokens=max_tokens
+                )
+
+                text_response = ""
+
+                if completion.choices and completion.choices[0].message:
+                    text_response = completion.choices[0].message.content
+
+                if hasattr(completion, 'usage') and completion.usage:
+                    prompt_tokens = completion.usage.prompt_tokens if completion.usage.prompt_tokens is not None else 0
+                    completion_tokens = completion.usage.completion_tokens if completion.usage.completion_tokens is not None else 0
+                    total_tokens = completion.usage.total_tokens if completion.usage.total_tokens is not None else 0
+
+
+                return {
+                    "text": text_response,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
+                }
+        except APIConnectionError as e:
+            print(f"Error connecting to OpenAI API: {e}")
+            return default_error_response
+        except Exception as e: # Catch any other unexpected errors during API call
+            print(f"An unexpected error occurred with OpenAI API: {e}")
+            return default_error_response
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+
             if completion.choices and completion.choices[0].message:
-                return completion.choices[0].message.content
-            return "" # Return empty string if no content
+                text_response = completion.choices[0].message.content
+
+            if hasattr(completion, 'usage') and completion.usage:
+                prompt_tokens = completion.usage.prompt_tokens if completion.usage.prompt_tokens is not None else 0
+                completion_tokens = completion.usage.completion_tokens if completion.usage.completion_tokens is not None else 0
+                total_tokens = completion.usage.total_tokens if completion.usage.total_tokens is not None else 0
+
+            # print(completion) # Optional: for debugging the raw completion object
+            return {
+                "text": text_response,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
 
 
 

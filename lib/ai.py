@@ -1,169 +1,103 @@
-import sys
 import argparse
-from enum import Enum
-
-from prompt_toolkit import PromptSession
-from prompt_toolkit.layout.containers import HSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.layout import Layout
-from rich.console import Console
-from rich.layout import Layout as RichLayout
-from rich.panel import Panel
-from rich.text import Text
-from rich.live import Live # Import Live
-
-from lib.llm.prompts import explain_terminal, explain_question
-from lib.utils.text import extract_quoted_text, remove_empty_or_whitespace_strings
-
-from lib.llm.basellm import BaseApiLLM
+# Removed Enum, sys, and some specific local imports that are no longer used directly in main
+# from lib.llm.prompts import explain_terminal, explain_question # No longer used here
+# from lib.utils.text import extract_quoted_text, remove_empty_or_whitespace_strings # No longer used here
+# from lib.llm.basellm import BaseApiLLM # No longer used directly here
 
 from lib.llm.openai import OpenAiApi
 from lib.llm.ollama import OllamaApi
-
-class QuestionMode(str, Enum):
-    state1 = 'explain_terminal'
-    state2 = 'explain_question'
-
-
-def contains_substring(text : str, aList : list):
-    for element in aList:
-        if text in element:
-            return True
-    return False
-
-def filter_commands(input_list):
-    return [s.strip() for s in input_list if not (s.startswith('-') or s.startswith('--'))]
-
-# test
-
-
-def test_openai(prompt: str, stream: bool = True):
-
-    openai_api = OpenAiApi("http://127.0.0.1:12434","ai/gemma3:latest")
- 
-    print("Models ->",openai_api.list_models())
-    openai_api.set_params({"system_prompt":"respond to the question the best you can in Arabic"})    
-    openai_api.generate_text(prompt,stream=stream)
-
-
-
-
-def test_ollama(prompt: str, stream: bool = True):
-    
-    ollama_api = OllamaApi("http://10.1.1.62:11434","devstral:latest")
-    # ollama_api.print_model()
-    print("Models ->",ollama_api.list_models())
-    ollama_api.set_params({"system_prompt":"respond to the question the best you can in Portuguese"}) 
-    txt = ollama_api.generate_text(prompt, stream)
-    if (txt):
-        print(txt)
-
-
-# class Agent():
-#     def __init__(self):
-#         self.api_endpoint
-
-def run_interactive_mode(api_endpoint, model_name):
-    """Runs the interactive mode UI."""
-    console = Console()
-    session = PromptSession()
-
-    status_panel = Panel(Text(f"Status: Idle | LLM API: {api_endpoint} | Model: {model_name}"), title="Status")
-    # Ensure initial response_area also has padding=0
-    response_area = Panel("", title="LLM Response", padding=0)
-    # input_line = Panel(session.app.layout, title="Input") # This might not be directly usable as a Panel content
-
-    rich_layout = RichLayout(name="root")
-    rich_layout.split_column(
-        RichLayout(name="header", size=3),
-        RichLayout(name="main", ratio=1), # Main content area, takes most space
-        RichLayout(name="prompt_reserve", size=1) # Reserved space for prompt_toolkit input line
-    )
-    rich_layout["header"].update(status_panel)
-    rich_layout["main"].update(response_area)
-    # The "prompt_reserve" area is intentionally left blank or can have minimal content.
-    # prompt_toolkit will draw over this line.
-    rich_layout["prompt_reserve"].update("") # Explicitly make it blank
-
-    with console.screen() as screen:
-        while True:
-            screen.update(rich_layout)
-            try:
-                prompt_text = session.prompt("> ")
-                if prompt_text.lower() == "exit":
-                    break
-
-                # Update status panel
-                status_panel = Panel(Text(f"Status: Processing... | LLM API: {api_endpoint} | Model: {model_name}"), title="Status")
-                rich_layout["header"].update(status_panel)
-                screen.update(rich_layout)
-
-                # LLM interaction
-                openai_api = OpenAiApi(api_endpoint, model_name)
-
-                # Initialize for streaming
-                accumulated_response_text = ""
-                # Create a Text widget that can be updated for the response area
-                response_text_widget = Text("")
-                # Ensure the response panel has no padding that might affect the line below
-                current_response_panel = Panel(response_text_widget, title="LLM Response", padding=0)
-                rich_layout["main"].update(current_response_panel)
-                # screen.update(rich_layout) # Initial update with empty response area - this will be done by the main loop's screen.update
-
-                # Stream and update
-                for chunk in openai_api.generate_text(prompt_text, stream=True):
-                    accumulated_response_text += chunk
-                    response_text_widget.plain = accumulated_response_text
-                    # Re-create panel with updated text_widget, maintaining padding=0
-                    current_response_panel = Panel(response_text_widget, title="LLM Response", padding=0)
-                    rich_layout["main"].update(current_response_panel)
-                    # Explicitly ensure prompt_reserve is blank before this update that shows new text
-                    rich_layout["prompt_reserve"].update(Text(""))
-                    screen.update(rich_layout) # Refresh screen with each new chunk
-
-                # Update status panel after streaming/generation is complete
-                status_panel = Panel(Text(f"Status: Idle | LLM API: {api_endpoint} | Model: {model_name}"), title="Status")
-                rich_layout["header"].update(status_panel)
-                screen.update(rich_layout)
-
-            except KeyboardInterrupt:
-                continue # Allow Ctrl+C to clear the input line without exiting
-            except EOFError:
-                break # Allow Ctrl+D to exit
+from lib.agent import BaseAgent
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AI agent-terminal")
-    parser.add_argument("-i", "--interactive", action="store_true", help="Run in interactive mode")
-    parser.add_argument("prompt", nargs="?", help="Prompt to send to the LLM")
-    parser.add_argument("--stream", action="store_true", help="Enable streaming response")
-    # Add other arguments as needed, e.g., for API endpoint, model selection
-    parser.add_argument("--api-endpoint", default="http://127.0.0.1:12434", help="LLM API endpoint")
-    parser.add_argument("--model", default="ai/gemma3:latest", help="LLM model name")
+    print("AI agent-terminal!")
+
+    parser = argparse.ArgumentParser(description="CLI AI Agent")
+    parser.add_argument('prompt', nargs='?', default='', help='Main text prompt')
+    parser.add_argument('-f', '--file', dest='filename', help='File path to prepend to the prompt')
+    parser.add_argument('--stream', action='store_true', help='Enable streaming response')
+    parser.add_argument('--api', type=str, default='ollama', choices=['ollama', 'openai'],
+                        help='Select the AI API to use (ollama or openai)')
+
+    parsed_args = parser.parse_args()
+
+    # Print parsed arguments (optional, for debugging)
+    # print("[AI] ------------------ parameters: ")
+    # print(f"Prompt: {parsed_args.prompt}")
+    # print(f"Filename: {parsed_args.filename}")
+    # print(f"Stream: {parsed_args.stream}")
+    # print(f"API: {parsed_args.api}")
+    # print("[AI]---------------------------------")
+
+    # Define LLM API configurations
+    llm_configs = {
+        "ollama": {"base_url": "http://10.1.1.62:11434", "model": "devstral:latest"},
+        "openai": {"base_url": "http://127.0.0.1:12434", "model": "ai/gemma3:latest"}
+    }
+
+    # Create API instances
+    try:
+        ollama_api = OllamaApi(llm_configs["ollama"]["base_url"], llm_configs["ollama"]["model"])
+        openai_api = OpenAiApi(llm_configs["openai"]["base_url"], llm_configs["openai"]["model"])
+    except Exception as e:
+        print(f"Error initializing LLM APIs: {e}")
+        return
+
+    available_llms = {
+        "ollama": ollama_api,
+        "openai": openai_api
+    }
+
+    # Instantiate the agent
+    agent = BaseAgent(available_llms, default_api_name=parsed_args.api)
+    if not agent.active_llm_api:
+        print(f"Failed to activate API: {parsed_args.api}. Please check configurations.")
+        return
+
+    agent.set_active_api("openai")
+
+    file_content = ""
+    if parsed_args.filename:
+        try:
+            with open(parsed_args.filename, 'r') as f:
+                file_content = f.read()
+            print(f"--- Content from {parsed_args.filename} prepended to prompt ---")
+        except FileNotFoundError:
+            print(f"Error: File not found: {parsed_args.filename}")
+        except IOError:
+            print(f"Error: Could not read file: {parsed_args.filename}")
+
+    final_prompt = parsed_args.prompt
+    if file_content:
+        if parsed_args.prompt: # Both file and direct prompt
+            final_prompt = f"{file_content}\n\n{parsed_args.prompt}"
+        else: # Only file content
+            final_prompt = file_content
+
+    # Ensure final_prompt is not just whitespace
+    if not final_prompt.strip():
+        if parsed_args.filename and not file_content: # File was specified but could not be read
+            print("Prompt is empty and file could not be read or was empty.")
+        else:
+            print("Prompt is empty. Use -h for help or provide a prompt/file.")
+        return
+
+    print(f"\nUsing API: {agent.get_active_api_name()}")
+    print(f"Sending prompt (length: {len(final_prompt)} chars)...")
+    # For brevity, you might choose to print only a part of a very long prompt
+    # print(f"Prompt content: \n{final_prompt[:200]}{'...' if len(final_prompt) > 200 else ''}\n")
 
 
-    args = parser.parse_args()
+    response = agent.generate_response(final_prompt, stream=parsed_args.stream)
 
-    if args.interactive:
-        run_interactive_mode(args.api_endpoint, args.model)
-    else:
-        if not args.prompt:
-            print("Error: Prompt is required when not in interactive mode.")
-            parser.print_help()
-            sys.exit(1)
-            return # Ensure no further execution if prompt is missing
+    # If not streaming, and response is actual text (not None), print it.
+    # If streaming, generate_response in BaseAgent handles printing chunks.
+    # The current BaseAgent's generate_response returns the full string for non-streamed
+    # and also for streamed (after printing chunks). So we only print if not streaming.
+    if not parsed_args.stream and response:
+        print(f"\nAI Response:\n{response}")
 
-        print("AI agent-terminal!")
-        # print("[AI] ------------------ parameters: ", len(sys.argv[1:]))
-        # print(sys.argv[1:]) # This would print all args including -i etc.
-        # print("[AI]---------------------------------")
-
-        # prompt_text = filter_commands(sys.argv[1:]) # This needs to be adjusted for argparse
-        # print("prompt ->", args.prompt)
-
-        is_streamming = args.stream
-        test_openai(args.prompt, is_streamming)
-        # test_ollama(args.prompt,is_streamming)
+    agent.print_status()
 
 
 if __name__ == "__main__":

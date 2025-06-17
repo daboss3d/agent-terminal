@@ -5,10 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "openai>=1.86.0",
-    "requests>=2.32.4",
     "prompt_toolkit",
     "rich",
+    "wcwidth",
+    # openai, requests, pydantic and their ecosystem are now in requirements.txt
 ]
 
 
