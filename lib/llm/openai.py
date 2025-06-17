@@ -24,21 +24,31 @@ class OpenAiApi(BaseApiLLM):
                 stream = True
             )
 
+            response_content = ""
             for chunk in completion:
                 data = chunk.choices[0].delta.content
-                if data != None:
-                    print(data, end="")
+                if data: # Check if data is not None and not empty
+                    response_content += data
+                    yield data # Yield each chunk for streaming
+            # When streaming, we might not need to return the full accumulated content here,
+            # as it's yielded. However, if a return value is expected by some callers
+            # when stream=True, this might need adjustment. For now, focus on yielding.
+            # return response_content
+            return # Ensure a clear return path if needed, or rely on StopIteration
 
-
-        else:
+        else: # Not streaming
             completion = self.client.chat.completions.create(
                 model = f"{self.model_name}",
                 messages = [
                     { "role": "system", "content": self.params["system_prompt"]},
                     { "role": "user", "content": prompt},
-                ]
+                ],
+                stream = False # Explicitly False
             )
-            print(completion)
+            # Extract the text content from the completion
+            if completion.choices and completion.choices[0].message:
+                return completion.choices[0].message.content
+            return "" # Return empty string if no content
 
 
 
