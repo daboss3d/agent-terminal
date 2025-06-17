@@ -69,14 +69,15 @@ def run_interactive_mode(api_endpoint, model_name):
     session = PromptSession()
 
     status_panel = Panel(Text(f"Status: Idle | LLM API: {api_endpoint} | Model: {model_name}"), title="Status")
-    response_area = Panel("", title="LLM Response")
+    # Ensure initial response_area also has padding=0
+    response_area = Panel("", title="LLM Response", padding=0)
     # input_line = Panel(session.app.layout, title="Input") # This might not be directly usable as a Panel content
 
     rich_layout = RichLayout(name="root")
     rich_layout.split_column(
         RichLayout(name="header", size=3),
         RichLayout(name="main", ratio=1), # Main content area, takes most space
-        RichLayout(name="prompt_reserve", size=3) # Reserved space for prompt_toolkit input line
+        RichLayout(name="prompt_reserve", size=1) # Reserved space for prompt_toolkit input line
     )
     rich_layout["header"].update(status_panel)
     rich_layout["main"].update(response_area)
@@ -104,27 +105,21 @@ def run_interactive_mode(api_endpoint, model_name):
                 accumulated_response_text = ""
                 # Create a Text widget that can be updated for the response area
                 response_text_widget = Text("")
-                rich_layout["main"].update(Panel(response_text_widget, title="LLM Response"))
-                screen.update(rich_layout) # Initial update with empty response area
+                # Ensure the response panel has no padding that might affect the line below
+                current_response_panel = Panel(response_text_widget, title="LLM Response", padding=0)
+                rich_layout["main"].update(current_response_panel)
+                # screen.update(rich_layout) # Initial update with empty response area - this will be done by the main loop's screen.update
 
                 # Stream and update
-                # TODO: Decide if stream=True should always be used in interactive, or based on args.
-                # For now, let's assume we want to stream if possible.
-                # The generate_text method now yields chunks for stream=True.
                 for chunk in openai_api.generate_text(prompt_text, stream=True):
                     accumulated_response_text += chunk
-                    response_text_widget.plain = accumulated_response_text # Update Text widget
-                    # No need to call rich_layout["main"].update() again if response_text_widget is the Panel's renderable.
-                    # However, Panel takes a renderable at init. So we might need to re-create the Panel or update its renderable.
-                    # For simplicity and robustness with current Panel behavior:
-                    rich_layout["main"].update(Panel(response_text_widget, title="LLM Response"))
+                    response_text_widget.plain = accumulated_response_text
+                    # Re-create panel with updated text_widget, maintaining padding=0
+                    current_response_panel = Panel(response_text_widget, title="LLM Response", padding=0)
+                    rich_layout["main"].update(current_response_panel)
+                    # Explicitly ensure prompt_reserve is blank before this update that shows new text
+                    rich_layout["prompt_reserve"].update(Text(""))
                     screen.update(rich_layout) # Refresh screen with each new chunk
-
-                # If generate_text stream=False was used, it would return the full string:
-                # response_text = openai_api.generate_text(prompt_text, stream=False)
-                # response_text_widget.plain = response_text if response_text else ""
-                # rich_layout["main"].update(Panel(response_text_widget, title="LLM Response"))
-                # screen.update(rich_layout)
 
                 # Update status panel after streaming/generation is complete
                 status_panel = Panel(Text(f"Status: Idle | LLM API: {api_endpoint} | Model: {model_name}"), title="Status")

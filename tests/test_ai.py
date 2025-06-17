@@ -53,32 +53,31 @@ def test_interactive_mode_input_handling_and_response_display(mock_console, mock
     # Check that Rich Panel was called with the expected content, including progressive updates
     # panel_call_args_list = mock_lib_ai_panel.call_args_list # Original approach
 
-    captured_panel_plain_texts_at_call_time = []
-    def capture_panel_text_on_call(*args, **kwargs):
-        # This function will be the side_effect for mock_lib_ai_panel constructor
-        # It captures the 'plain' text of the first argument if it's a Text object.
+    # captured_panel_plain_texts_at_call_time = [] # Will be part of a more complex capture
+    panel_calls_info = [] # To store (text, title, padding)
+
+    def capture_panel_info_on_call(*args, **kwargs):
+        text_content = None
         if args and len(args) > 0:
             renderable = args[0]
-            title = kwargs.get('title', '') # Capture title to differentiate panels if needed
+            if hasattr(renderable, 'plain'):
+                text_content = renderable.plain
+            elif isinstance(renderable, str):
+                text_content = renderable
 
-            # We are interested in the main "LLM Response" panel's content progression
-            # and also status panels.
-            if title == "LLM Response":
-                if hasattr(renderable, 'plain'):
-                    captured_panel_plain_texts_at_call_time.append(renderable.plain)
-                elif isinstance(renderable, str): # e.g. Panel("", title="LLM Response")
-                    captured_panel_plain_texts_at_call_time.append(renderable)
-            elif title == "Status": # Capture status texts as well
-                 if hasattr(renderable, 'plain'):
-                    captured_panel_plain_texts_at_call_time.append(renderable.plain)
-        return MagicMock() # Each call to Panel() should return a new mock instance
+        title = kwargs.get('title', '')
+        padding = kwargs.get('padding') # Get padding, will be None if not set
+        panel_calls_info.append({"text": text_content, "title": title, "padding": padding})
+        return MagicMock()
 
-    mock_lib_ai_panel.side_effect = capture_panel_text_on_call # **** SET SIDE_EFFECT HERE ****
+    mock_lib_ai_panel.side_effect = capture_panel_info_on_call
 
     # Call the function under test
     run_interactive_mode(api_endpoint="dummy_api", model_name="dummy_model")
 
-    actual_panel_renderable_texts = captured_panel_plain_texts_at_call_time
+    # Extract texts for existing assertions
+    actual_panel_renderable_texts = [call['text'] for call in panel_calls_info if call['text'] is not None]
+    status_panel_texts = [call['text'] for call in panel_calls_info if call['title'] == "Status" and call['text'] is not None]
 
     # Assertions
     mock_prompt_session.assert_called_once()
@@ -101,8 +100,8 @@ def test_interactive_mode_input_handling_and_response_display(mock_console, mock
     # how run_interactive_mode is structured. The key is that these texts appear.
 
     # Status panel texts that should appear
-    assert "Status: Idle | LLM API: dummy_api | Model: dummy_model" in actual_panel_renderable_texts
-    assert "Status: Processing... | LLM API: dummy_api | Model: dummy_model" in actual_panel_renderable_texts
+    assert "Status: Idle | LLM API: dummy_api | Model: dummy_model" in status_panel_texts
+    assert "Status: Processing... | LLM API: dummy_api | Model: dummy_model" in status_panel_texts
 
     # Response panel texts, showing progression
     assert "" in actual_panel_renderable_texts # Initial empty response panel
@@ -110,6 +109,13 @@ def test_interactive_mode_input_handling_and_response_display(mock_console, mock
     assert "LLM response " in actual_panel_renderable_texts
     assert "LLM response to " in actual_panel_renderable_texts
     assert "LLM response to hello" in actual_panel_renderable_texts
+
+    # New assertion: Check padding for response panels
+    response_panel_calls = [call for call in panel_calls_info if call['title'] == "LLM Response"]
+    assert len(response_panel_calls) > 0, "No 'LLM Response' panels were created."
+    for rp_call in response_panel_calls:
+        assert rp_call['padding'] == 0, \
+            f"LLM Response panel was created with padding {rp_call['padding']}, expected 0. Content: '{rp_call['text']}'"
 
     # Verify screen was updated multiple times.
     # screen.update is called:
