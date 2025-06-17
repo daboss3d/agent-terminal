@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Generator, Union, Dict # Added Generator, Union, Dict
 
 class BaseApiLLM(ABC):
 
@@ -21,17 +22,22 @@ class BaseApiLLM(ABC):
         print("Current Model ->",self.model_name)
 
     @abstractmethod
-    def generate_text(self, prompt: str, stream: bool = False, max_tokens: int = 50) -> dict:
+    def generate_text(self, prompt: str, stream: bool = False, max_tokens: int = 50) -> Generator[Union[str, Dict], None, None]:
         """
         Generates text based on the provided prompt.
+        Yields string chunks of the generated text when streaming.
+        Finally, yields a dictionary containing token counts and other metadata.
 
-        Returns:
-            dict: {
-                "text": str,
-                "prompt_tokens": int,
-                "completion_tokens": int,
-                "total_tokens": int
-            }
+        Yields:
+            Union[str, Dict]: String chunks of text, or a final Dict with metadata.
+                              The dict will have an "is_final_metadata": True key.
+                              Example final dict: {
+                                  "text": "", # Can be empty if all text was yielded
+                                  "prompt_tokens": int,
+                                  "completion_tokens": int,
+                                  "total_tokens": int,
+                                  "is_final_metadata": True
+                              }
         """
         raise NotImplementedError
 

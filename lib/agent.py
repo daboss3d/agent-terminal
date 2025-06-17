@@ -1,3 +1,4 @@
+from typing import Generator, Union, Dict # Added
 from lib.llm.basellm import BaseApiLLM
 from lib.llm.ollama import OllamaApi # For type hinting
 from lib.llm.openai import OpenAiApi # For type hinting
@@ -33,30 +34,43 @@ class BaseAgent:
     def get_active_api_name(self) -> str:
         return self.active_api_name if self.active_llm_api else "None"
 
-    def generate_response(self, prompt: str, stream: bool = False) -> str | None:
+    def generate_response(self, prompt: str, stream: bool = False) -> Union[str, None, Generator[Union[str, Dict], None, None]]:
         if not self.active_llm_api:
             print("Error: No active LLM API selected.")
-            return None
+            if stream: # For stream, we need to return an empty generator or raise
+                def empty_gen(): yield {"text": "Error: No active LLM API selected.", "is_final_metadata": True, "prompt_tokens":0, "completion_tokens":0, "total_tokens":0}; return
+                return empty_gen()
+            return None # For non-stream
 
-        # LLM API now returns a dictionary
-        llm_response_data = self.active_llm_api.generate_text(prompt, stream=stream)
+        llm_response_generator = self.active_llm_api.generate_text(prompt, stream=stream)
 
-        if llm_response_data is None:
-            # Handle case where API might fail and return None (e.g. connection error)
-            return None
+        if stream:
+            return llm_response_generator # Return the generator directly for streaming
+        else:
+            # Accumulate response for non-streaming case
+            full_text = ""
+            final_data = None
+            try:
+                for item in llm_response_generator:
+                    if isinstance(item, str):
+                        full_text += item
+                    elif isinstance(item, dict) and item.get("is_final_metadata"):
+                        final_data = item
+                        break # Metadata is the last item
+            except Exception as e: # Catch errors during iteration if API fails mid-stream
+                print(f"Error processing generator from LLM: {e}")
+                return None # Or return accumulated text up to this point: full_text
 
-        self.message_count += 1
-        self.token_count += llm_response_data.get("total_tokens", 0)
-
-        # print(f"DEBUG_AGENT: Generating response with API: {self.active_api_name}") # Removed
-        # print(f"DEBUG_AGENT: Prompt passed to LLM: '{prompt[:100]}...'") # Removed
-        # if llm_response_data: # Removed block
-            # print(f"DEBUG_AGENT: LLM response data: {llm_response_data}")
-            # print(f"DEBUG_AGENT: Tokens for this call: {llm_response_data.get('total_tokens', 0)}")
-        # print(f"DEBUG_AGENT: Cumulative message count: {self.message_count}") # Removed
-        # print(f"DEBUG_AGENT: Cumulative token count: {self.token_count}") # Removed
-
-        return llm_response_data.get("text")
+            if final_data:
+                self.message_count += 1
+                self.token_count += final_data.get("total_tokens", 0)
+                return full_text
+            else:
+                # This case implies the generator from API was empty or malformed
+                print("Error: Did not receive final metadata from LLM API generator.")
+                # If full_text has content, it means some text was received before error.
+                # Decide if to return partial text or None. For now, return what we have.
+                return full_text if full_text else None
 
     def print_status(self):
         active_api_name = self.get_active_api_name()

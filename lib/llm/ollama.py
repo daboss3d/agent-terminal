@@ -1,6 +1,7 @@
 
 import json
 import requests
+from typing import Generator, Union, Dict # Added
 
 from lib.llm.basellm import BaseApiLLM
 # from lib.utils.text import clear_markdown_to_color # Removed as it's no longer in utils and functionality is not immediately required
@@ -130,7 +131,7 @@ def query_stream(model_name: str, base_url : str, prompt):
 
 # Final methods ######################################################################################
 
-def generate_text(base_url : str, payload:dict, stream: bool = True ) -> dict:
+def generate_text(base_url : str, payload:dict, stream: bool = True ) -> Generator[Union[str, Dict], None, None]:
     prompt_tokens = 0
     completion_tokens = 0
     total_tokens = 0
@@ -141,18 +142,19 @@ def generate_text(base_url : str, payload:dict, stream: bool = True ) -> dict:
         try:
             with requests.post(base_url, json=payload, stream=True) as response:
                 response.raise_for_status()
-                print() # Start stream on new line
+                # print() # Start stream on new line - remove for generator
                 for line in response.iter_lines():
                     if line:
                         chunk = json.loads(line)
                         if not chunk.get("done"):
                             response_piece = chunk.get("response", "")
-                            full_response += response_piece
-                            print(response_piece, end="", flush=True)
+                            # full_response += response_piece # No need to accumulate full_response here for stream
+                            yield response_piece # Yield the text chunk
+                            # print(response_piece, end="", flush=True) # remove for generator
                         else:
                             # This is the final chunk with metadata
                             final_chunk_data = chunk
-                            print() # Newline after stream completion
+                            # print() # Newline after stream completion - remove for generator
 
                 if final_chunk_data:
                     prompt_tokens = final_chunk_data.get("prompt_eval_count", 0)
@@ -161,26 +163,27 @@ def generate_text(base_url : str, payload:dict, stream: bool = True ) -> dict:
 
         except requests.RequestException as e:
             print(f"Error fetching data from Ollama (stream): {str(e)}")
-            # Return empty/error structure or raise? For now, return what we have.
+            # In a generator, we might yield an error object or just stop.
+            # For now, if an error occurs, the generator will stop, and no final dict is yielded.
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from Ollama (stream): {str(e)}")
 
-        return {
-            "text": full_response, # Raw text for stream
+        # Yield the final metadata dictionary for stream
+        yield {
+            "text": "", # Placeholder, full text was yielded in chunks
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens
+            "total_tokens": total_tokens,
+            "is_final_metadata": True
         }
     else: # Non-streaming
         response_text = ""
         final_chunk_data = {}
+        prompt_tokens = 0 # Ensure these are initialized for non-streaming case too
+        completion_tokens = 0
+        total_tokens = 0
         try:
-            # For non-streaming, Ollama typically sends a single JSON object response
-            # if stream=False is respected by the server.
-            # However, the previous code iterated lines, suggesting it might still be chunked
-            # or that stream=False in payload might not prevent line-by-line response.
-            # Assuming the server might still send line-by-line JSON objects ending with a "done" one.
-            with requests.post(base_url, json=payload, stream=True) as response: # Keep stream=True for iter_lines
+            with requests.post(base_url, json=payload, stream=True) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if line:
@@ -188,27 +191,26 @@ def generate_text(base_url : str, payload:dict, stream: bool = True ) -> dict:
                         if not chunk.get("done"):
                             response_text += chunk.get("response", "")
                         else:
-                            final_chunk_data = chunk # This is the final summary chunk
+                            final_chunk_data = chunk
 
                 if final_chunk_data:
                     prompt_tokens = final_chunk_data.get("prompt_eval_count", 0)
                     completion_tokens = final_chunk_data.get("eval_count", 0)
                     total_tokens = prompt_tokens + completion_tokens
-                else: # Fallback if 'done' message wasn't received or parsed
+                else:
                     print("Warning: Final 'done' chunk not processed in non-streaming mode for Ollama.")
-
-
         except requests.RequestException as e:
             print(f"Error fetching data from Ollama (non-stream): {str(e)}")
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from Ollama (non-stream): {str(e)}")
 
-        # Apply color only for non-streamed, fully collected text
-        return {
-            "text": response_text if response_text else "", # Removed clear_markdown_to_color
+        yield response_text if response_text else "" # Yield accumulated text
+        yield { # Yield final metadata
+            "text": response_text, # Full text for non-streamed case
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens
+            "total_tokens": total_tokens,
+            "is_final_metadata": True
         }
 
 def list_models(base_url):
@@ -244,17 +246,16 @@ class OllamaApi(BaseApiLLM):
              self.base_url = self.base_url.replace("/api/generate", "")
 
 
-    def generate_text(self, prompt: str, stream: bool = False,  max_tokens: int = 50) -> dict: # Ensure stream default matches base
+    def generate_text(self, prompt: str, stream: bool = False,  max_tokens: int = 50) -> Generator[Union[str, Dict], None, None]:
 
         payload = {
             "model": self.model_name,
-            "prompt": f"{prompt}", # The prompt passed to agent.generate_response already includes file content
+            "prompt": f"{prompt}",
             "system": self.params["system_prompt"]
-            # "max_tokens": max_tokens # Ollama generate API might use "options": {"num_predict": max_tokens}
         }
 
-        # The helper `generate_text` now returns the dictionary directly.
-        return generate_text(f"{self.base_url}/api/generate", payload, stream)
+        # Use yield from to delegate to the generator helper function
+        yield from generate_text(f"{self.base_url}/api/generate", payload, stream)
 
     def set_params(self, new_params: dict) -> None:
         # for k, v in new_params.items():
